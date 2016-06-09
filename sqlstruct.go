@@ -193,6 +193,31 @@ func ScanAliased(dest interface{}, rows Rows, alias string) error {
 	return doScan(dest, rows, alias)
 }
 
+// ScanRow works like scan, but will scans only one row to dest. If query result
+// contains more rows they will be discarded.
+func ScanRow(db *sql.DB, dest interface{}, query string, args ...interface{}) error {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return sql.ErrNoRows
+	}
+
+	err = doScan(dest, rows, "")
+
+	// Make sure the query can be processed to completion with no errors.
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	return err
+}
+
 // Columns returns a string containing a sorted, comma-separated list of column names as
 // defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
 func Columns(s interface{}) string {
