@@ -4,6 +4,7 @@
 package sqlstruct
 
 import (
+	"database/sql"
 	"reflect"
 	"testing"
 )
@@ -39,6 +40,9 @@ func (r testRows) Scan(dest ...interface{}) error {
 		}
 
 		switch dest[i].(type) {
+		case *sql.NullString:
+			dest[i].(*sql.NullString).String = r.values[i].(string)
+			dest[i].(*sql.NullString).Valid = true
 		case *string:
 			*(dest[i].(*string)) = r.values[i].(string)
 		default:
@@ -95,7 +99,7 @@ func TestScan(t *testing.T) {
 	rows.addValue("field_d", "d")
 	rows.addValue("field_e", "e")
 
-	e := testType{"a", "", "c", "d", EmbeddedType{"e"}}
+	e := testType{FieldA: "a", FieldC: "c", Field_D: "d", EmbeddedType: EmbeddedType{"e"}}
 
 	var r testType
 	err := Scan(&r, rows)
@@ -118,7 +122,7 @@ func TestScanAliased(t *testing.T) {
 	rows.addValue("t2_field_a", "a2")
 	rows.addValue("t2_field_sec", "sec")
 
-	expected := testType{"a", "", "c", "d", EmbeddedType{"e"}}
+	expected := testType{FieldA: "a", FieldC: "c", Field_D: "d", EmbeddedType: EmbeddedType{"e"}}
 	var actual testType
 	err := ScanAliased(&actual, rows, "t1")
 	if err != nil {

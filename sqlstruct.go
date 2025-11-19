@@ -13,76 +13,76 @@ with "encoding/json" package.
 
 For example:
 
-    type T struct {
-        F1 string
-        F2 string `sql:"field2"`
-        F3 string `sql:"-"`
-    }
+	type T struct {
+	    F1 string
+	    F2 string `sql:"field2"`
+	    F3 string `sql:"-"`
+	}
 
-    rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T{})))
-    ...
+	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T{})))
+	...
 
-    for rows.Next() {
-    	var t T
-        err = sqlstruct.Scan(&t, rows)
-        ...
-    }
+	for rows.Next() {
+		var t T
+	    err = sqlstruct.Scan(&t, rows)
+	    ...
+	}
 
-    err = rows.Err() // get any errors encountered during iteration
+	err = rows.Err() // get any errors encountered during iteration
 
 Aliased tables in a SQL statement may be scanned into a specific structure identified
 by the same alias, using the ColumnsAliased and ScanAliased functions:
 
-    type User struct {
-        Id int `sql:"id"`
-        Username string `sql:"username"`
-        Email string `sql:"address"`
-        Name string `sql:"name"`
-        HomeAddress *Address `sql:"-"`
-    }
+	type User struct {
+	    Id int `sql:"id"`
+	    Username string `sql:"username"`
+	    Email string `sql:"address"`
+	    Name string `sql:"name"`
+	    HomeAddress *Address `sql:"-"`
+	}
 
-    type Address struct {
-        Id int `sql:"id"`
-        City string `sql:"city"`
-        Street string `sql:"address"`
-    }
+	type Address struct {
+	    Id int `sql:"id"`
+	    City string `sql:"city"`
+	    Street string `sql:"address"`
+	}
 
-    ...
+	...
 
-    var user User
-    var address Address
-    sql := `
-SELECT %s, %s FROM users AS u
-INNER JOIN address AS a ON a.id = u.address_id
-WHERE u.username = ?
+	var user User
+	var address Address
+	sql := `
+	SELECT %s, %s FROM users AS u
+	INNER JOIN address AS a ON a.id = u.address_id
+	WHERE u.username = ?
+
 `
-    sql = fmt.Sprintf(sql, sqlstruct.ColumnsAliased(*user, "u"), sqlstruct.ColumnsAliased(*address, "a"))
-    rows, err := db.Query(sql, "gedi")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer rows.Close()
-    if rows.Next() {
-        err = sqlstruct.ScanAliased(&user, rows, "u")
-        if err != nil {
-            log.Fatal(err)
-        }
-        err = sqlstruct.ScanAliased(&address, rows, "a")
-        if err != nil {
-            log.Fatal(err)
-        }
-        user.HomeAddress = address
-    }
-    fmt.Printf("%+v", *user)
-    // output: "{Id:1 Username:gedi Email:gediminas.morkevicius@gmail.com Name:Gedas HomeAddress:0xc21001f570}"
-    fmt.Printf("%+v", *user.HomeAddress)
-    // output: "{Id:2 City:Vilnius Street:Plento 34}"
 
+	sql = fmt.Sprintf(sql, sqlstruct.ColumnsAliased(*user, "u"), sqlstruct.ColumnsAliased(*address, "a"))
+	rows, err := db.Query(sql, "gedi")
+	if err != nil {
+	    log.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+	    err = sqlstruct.ScanAliased(&user, rows, "u")
+	    if err != nil {
+	        log.Fatal(err)
+	    }
+	    err = sqlstruct.ScanAliased(&address, rows, "a")
+	    if err != nil {
+	        log.Fatal(err)
+	    }
+	    user.HomeAddress = address
+	}
+	fmt.Printf("%+v", *user)
+	// output: "{Id:1 Username:gedi Email:gediminas.morkevicius@gmail.com Name:Gedas HomeAddress:0xc21001f570}"
+	fmt.Printf("%+v", *user.HomeAddress)
+	// output: "{Id:2 City:Vilnius Street:Plento 34}"
 */
 package sqlstruct
 
 import (
-	"bytes"
 	"database/sql"
 	"fmt"
 	"reflect"
@@ -97,12 +97,12 @@ import (
 // The default mapper converts field names to lower case. If instead you would prefer
 // field names converted to snake case, simply assign sqlstruct.ToSnakeCase to the variable:
 //
-//		sqlstruct.NameMapper = sqlstruct.ToSnakeCase
+//	sqlstruct.NameMapper = sqlstruct.ToSnakeCase
 //
 // Alternatively for a custom mapping, any func(string) string can be used instead.
 var NameMapper func(string) string = strings.ToLower
 
-// A cache of fieldInfos to save reflecting every time. Inspried by encoding/xml
+// A cache of fieldInfos to save reflecting every time. Inspired by encoding/xml
 var finfos map[reflect.Type]fieldInfo
 var finfoLock sync.RWMutex
 
@@ -200,7 +200,9 @@ func ScanRow(db *sql.DB, dest interface{}, query string, args ...interface{}) er
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
@@ -228,16 +230,27 @@ func Columns(s interface{}) string {
 // given alias.
 //
 // For each field in the given struct it will generate a statement like:
-//    alias.field AS alias_field
+//
+//	alias.field AS alias_field
 //
 // It is intended to be used in conjunction with the ScanAliased function.
 func ColumnsAliased(s interface{}, alias string) string {
 	names := cols(s)
-	aliased := make([]string, 0, len(names))
-	for _, n := range names {
-		aliased = append(aliased, alias+"."+n+" AS "+alias+"_"+n)
+	aliased := strings.Builder{}
+	stop := len(names) - 1
+	for index, n := range names {
+		aliased.WriteString(alias)
+		aliased.WriteString(".")
+		aliased.WriteString(n)
+		aliased.WriteString(" AS ")
+		aliased.WriteString(alias)
+		aliased.WriteString("_")
+		aliased.WriteString(n)
+		if stop != index {
+			aliased.WriteString(", ")
+		}
 	}
-	return strings.Join(aliased, ", ")
+	return aliased.String()
 }
 
 func cols(s interface{}) []string {
@@ -257,7 +270,7 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
 
-	if typ.Kind() != reflect.Ptr || typ.Elem().Kind() != reflect.Struct {
+	if typ.Kind() != reflect.Pointer || typ.Elem().Kind() != reflect.Struct {
 		panic(fmt.Errorf("dest must be pointer to struct; got %T", destv))
 	}
 	fieldInfo := getFieldInfo(typ.Elem())
@@ -272,9 +285,11 @@ func doScan(dest interface{}, rows Rows, alias string) error {
 
 	var nullableFields []nullableField
 
+	alias_ := alias + "_"
+
 	for _, name := range cols {
 		if len(alias) > 0 {
-			name = strings.Replace(name, alias+"_", "", 1)
+			name = strings.Replace(name, alias_, "", 1)
 		}
 		idx, ok := fieldInfo[NameMapper(name)]
 		var v interface{}
@@ -349,7 +364,7 @@ func ToSnakeCase(src string) string {
 	thisUpper := false
 	prevUpper := false
 
-	buf := bytes.NewBufferString("")
+	str := strings.Builder{}
 	for i, v := range src {
 		if v >= 'A' && v <= 'Z' {
 			thisUpper = true
@@ -357,12 +372,12 @@ func ToSnakeCase(src string) string {
 			thisUpper = false
 		}
 		if i > 0 && thisUpper && !prevUpper {
-			buf.WriteRune('_')
+			str.WriteRune('_')
 		}
 		prevUpper = thisUpper
-		buf.WriteRune(v)
+		str.WriteRune(v)
 	}
-	return strings.ToLower(buf.String())
+	return strings.ToLower(str.String())
 }
 
 // NullValue returns value of the nulled field
@@ -389,7 +404,7 @@ func NullValue(value interface{}) interface{} {
 		} else {
 			return value
 		}
+	default:
+		return value
 	}
-
-	return value
 }
